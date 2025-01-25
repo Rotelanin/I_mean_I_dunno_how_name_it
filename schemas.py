@@ -1,4 +1,4 @@
-# зробіть тут валідацію. та решта що в завданні пише <3
+# Виконано
 
 from pydantic import BaseModel, EmailStr
 from typing import List, Optional
