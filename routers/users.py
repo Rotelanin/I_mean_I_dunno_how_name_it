@@ -1,53 +1,73 @@
-from fastapi import APIRouter, HTTPException, Depends
-from sqlalchemy.orm import Session
-from database import get_db
-from models import User
-from schemas import UserPydantic
+import unittest
+from sqlalchemy.exc import SQLAlchemyError
+from pydantic import ValidationError
 from jose import jwt, JWTError
+from datetime import datetime, timedelta
+from I_mean_I_dunno_how_name_it.database import get_db, create_user, get_user_by_id
+from I_mean_I_dunno_how_name_it.models import User
+from I_mean_I_dunno_how_name_it.schemas import UserSchema
 
-
-SECRET_KEY = "IHGDJFoi8S&DtfsDGBGKLFksDGfj"
+SECRET_KEY = "your_secret_key"
 ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
-router = APIRouter()
+def create_access_token(data: dict, expires_delta: timedelta = None):
+    to_encode = data.copy()
+    expire = datetime.utcnow() + (expires_delta if expires_delta else timedelta(minutes=15))
+    to_encode.update({"exp": expire})
+    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
-user_encoded_data = jwt.encode({"username": "Denis"}, SECRET_KEY, ALGORITHM)
-print(user_encoded_data)
+class TestDatabase(unittest.TestCase):
+    def test_database_connection(self):
+        try:
+            db = next(get_db())
+            self.assertIsNotNone(db)
+        except SQLAlchemyError:
+            self.fail("Database connection failed")
 
-user_decoded_data = jwt.decode(user_encoded_data, SECRET_KEY, ALGORITHM)
-print(user_decoded_data)
+class TestUserModel(unittest.TestCase):
+    def test_user_model(self):
+        user = User(id=1, username="test_user", email="test@example.com", password="hashedpassword")
+        self.assertEqual(user.username, "test_user")
+        self.assertEqual(user.email, "test@example.com")
 
+class TestUserSchema(unittest.TestCase):
+    def test_user_schema_valid(self):
+        user_data = {"username": "valid_user", "email": "valid@example.com", "password": "securepassword"}
+        user = UserSchema(**user_data)
+        self.assertEqual(user.username, "valid_user")
+        self.assertEqual(user.email, "valid@example.com")
 
-@router.get("/users", summary="Отримати всіх юзерів з бд")
-async def users(db: Session = Depends(get_db)):
-    users = db.query(User).all()
-    return users
+    def test_user_schema_invalid(self):
+        with self.assertRaises(ValidationError):
+            UserSchema(username="", email="invalid", password="123")
 
+class TestUserFunctions(unittest.TestCase):
+    def test_create_user(self):
+        db = next(get_db())
+        user = create_user(db, username="new_user", email="new@example.com", password="securepassword")
+        self.assertEqual(user.username, "new_user")
+        self.assertEqual(user.email, "new@example.com")
 
-@router.get("/user/{id_user}", summary="Отримати інформацію про юзера по id")
-async def user(id_user: int, db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.id == id_user).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-    return user
+    def test_get_user_by_id(self):
+        db = next(get_db())
+        user = create_user(db, username="lookup_user", email="lookup@example.com", password="securepassword")
+        fetched_user = get_user_by_id(db, user.id)
+        self.assertIsNotNone(fetched_user)
+        self.assertEqual(fetched_user.username, "lookup_user")
 
+class TestJWTAuthentication(unittest.TestCase):
+    def test_create_access_token(self):
+        token = create_access_token({"sub": "test_user"})
+        self.assertIsInstance(token, str)
 
-@router.post("/user", summary="Тут потім напишу")
-async def new_user(user: UserPydantic, db: Session = Depends(get_db)):
-    check_user = db.query(User).filter(User.email == user.email).first()
-    if check_user:
-        raise HTTPException(status_code=400, detail="Email already registered")
+    def test_decode_access_token(self):
+        token = create_access_token({"sub": "test_user"})
+        try:
+            decoded = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+            self.assertEqual(decoded["sub"], "test_user")
+        except JWTError:
+            self.fail("Token decoding failed")
 
-    new_user = User(name=user.name, email=user.email, password=user.password)
-    db.add(new_user)
-    db.commit()
-    return new_user
-
-@router.delete("/user/{id_user}", summary="Видалити юзера по айді")
-async def delete_user(id_user: int, db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.id == id_user).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-    db.delete(user)
-    db.commit()
-    return {"detail": "User deleted"}
+if __name__ == "__main__":
+    unittest.main()
