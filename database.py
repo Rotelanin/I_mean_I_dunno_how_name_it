@@ -4,7 +4,7 @@ from sqlalchemy.orm import sessionmaker
 import os
 
 engine = create_engine("sqlite:///./test.db", connect_args={"check_same_thread": False})
-SessionLocal = sessionmaker(autocommit=false, autoflush=flase, bind=engine)
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base: DeclarativeMeta = declarative_base()
 
 
