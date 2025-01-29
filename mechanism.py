@@ -37,7 +37,6 @@ async def send_email_endpoint(email_data: EmailSchema, background_tasks: Backgro
     background_tasks.add_task(send_email, email_data.email, email_data.subject, email_data.message)
     return {"message": "Email is being sent"}
 
-# WebSocket для повідомлень про матчі та рейтинг
 clients = []
 
 @app.websocket("/ws/notifications")
