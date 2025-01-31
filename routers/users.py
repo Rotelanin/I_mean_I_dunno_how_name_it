@@ -1,125 +1,53 @@
-from fastapi import FastAPI, Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from fastapi import APIRouter, HTTPException, Depends
+from sqlalchemy.orm import Session
+from database import get_db
+from models import User
+from schemas import UserPydantic
 from jose import jwt, JWTError
-from datetime import datetime, timedelta
-from sqlalchemy import Column, Integer, String, create_engine
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker, Session
-import bcrypt
 
-# Конфігурація бази даних
-DATABASE_URL = "sqlite:///./user_test.db"
-Base = declarative_base()
-engine = create_engine(DATABASE_URL)
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
-# Налаштування JWT
-SECRET_KEY = 'your_secret'
-ALGORITHM = 'HS256'
-ACCESS_TOKEN_MINUTES = 30
+SECRET_KEY = "IHGDJFoi8S&DtfsDGBGKLFksDGfj"
+ALGORITHM = "HS256"
 
-app = FastAPI()
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
+router = APIRouter()
 
-# Модель SQLAlchemy для користувачів
-class User(Base):
-    __tablename__ = "users"
-    id = Column(Integer, primary_key=True, index=True)
-    username = Column(String, unique=True, index=True, nullable=False)
-    password = Column(String, nullable=False)
-    role = Column(String, default="user")
+user_encoded_data = jwt.encode({"username": "Denis"}, SECRET_KEY, ALGORITHM)
+print(user_encoded_data)
 
-# Створення таблиць
-Base.metadata.create_all(bind=engine)
+user_decoded_data = jwt.decode(user_encoded_data, SECRET_KEY, ALGORITHM)
+print(user_decoded_data)
 
-# Хелпери для хешування паролів
-def hash_password(password: str) -> str:
-    salt = bcrypt.gensalt()
-    return bcrypt.hashpw(password.encode('utf-8'), salt).decode('utf-8')
 
-def verify_password(plain_password: str, hashed_password: str) -> bool:
-    return bcrypt.checkpw(plain_password.encode('utf-8'), hashed_password.encode('utf-8'))
+@router.get("/users", summary="Отримати всіх юзерів з бд")
+async def users(db: Session = Depends(get_db)):
+    users = db.query(User).all()
+    return users
 
-# Функція для створення токена
-def create_access_token(data: dict) -> str:
-    to_encode = data.copy()
-    expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_MINUTES)
-    to_encode.update({"exp": expire})
-    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
-# Функція для отримання сесії бази даних
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
+@router.get("/user/{id_user}", summary="Отримати інформацію про юзера по id")
+async def user(id_user: int, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.id == id_user).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    return user
 
-# Функція для перевірки токена та отримання поточного користувача
-def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
-    credentials_exception = HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Could not validate credentials",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
-    try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        username: str = payload.get("sub")
-        role: str = payload.get("role")
-        if username is None or role is None:
-            raise credentials_exception
-        user = db.query(User).filter(User.username == username).first()
-        if user is None:
-            raise credentials_exception
-        return {"username": user.username, "role": user.role}
-    except JWTError:
-        raise credentials_exception
 
-def require_admin(user: dict = Depends(get_current_user)):
-    if user["role"] != "admin":
-        raise HTTPException(status_code=403, detail="Access denied")
+@router.post("/user", summary="Тут потім напишу")
+async def new_user(user: UserPydantic, db: Session = Depends(get_db)):
+    check_user = db.query(User).filter(User.email == user.email).first()
+    if check_user:
+        raise HTTPException(status_code=400, detail="Email already registered")
 
-@app.post("/register", status_code=201)
-async def register_user(username: str, password: str, role: str = "user", db: Session = Depends(get_db)):
-    existing_user = db.query(User).filter(User.username == username).first()
-    if existing_user:
-        raise HTTPException(status_code=400, detail="User already exists")
-    hashed_password = hash_password(password)
-    new_user = User(username=username, password=hashed_password, role=role)
+    new_user = User(name=user.name, email=user.email, password=user.password)
     db.add(new_user)
     db.commit()
-    db.refresh(new_user)
-    return {"msg": "User registered successfully"}
+    return new_user
 
-@app.post("/token")
-async def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
-    db_user = db.query(User).filter(User.username == form_data.username).first()
-    if not db_user or not verify_password(form_data.password, db_user.password):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect username or password",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    access_token = create_access_token(data={"sub": db_user.username, "role": db_user.role})
-    return {"access_token": access_token, "token_type": "bearer"}
-
-@app.get("/admin/content")
-async def admin_content(user: dict = Depends(require_admin)):
-    return {"content": "Admin content"}
-
-@app.get("/user/content")
-async def user_content(user: dict = Depends(get_current_user)):
-    return {"content": f"Hello {user['username']}, this is user content"}
-
-
-
-
-
-
-
-
-
-
-
-
-
+@router.delete("/user/{id_user}", summary="Видалити юзера по айді")
+async def delete_user(id_user: int, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.id == id_user).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    db.delete(user)
+    db.commit()
+    return {"detail": "User deleted"}
