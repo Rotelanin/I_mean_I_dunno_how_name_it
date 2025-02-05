@@ -1,17 +1,17 @@
-from fastapi import FastAPI, WebSocket, BackgroundTasks
+from fastapi import FastAPI, WebSocket, BackgroundTasks, Form
 from pydantic import BaseModel
 import smtplib
 from email.mime.text import MIMEText
 import json
 import asyncio
+import os
 
 app = FastAPI()
 
-# Конфігурація SMTP-сервера (замініть на ваші дані)
-SMTP_SERVER = "smtp.example.com"
-SMTP_PORT = 587
-SMTP_USER = "your_email@example.com"
-SMTP_PASSWORD = "your_password"
+SMTP_SERVER = os.getenv("SMTP_SERVER", "")
+SMTP_PORT = int(os.getenv("SMTP_PORT", 587))
+SMTP_USER = os.getenv("SMTP_USER", "")
+SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
 
 class EmailSchema(BaseModel):
     email: str
@@ -33,8 +33,13 @@ async def send_email(email: str, subject: str, message: str):
         print(f"Email sending failed: {e}")
 
 @app.post("/send-email/")
-async def send_email_endpoint(email_data: EmailSchema, background_tasks: BackgroundTasks):
-    background_tasks.add_task(send_email, email_data.email, email_data.subject, email_data.message)
+async def send_email_endpoint(
+    email: str = Form(...),
+    subject: str = Form(...),
+    message: str = Form(...),
+    background_tasks: BackgroundTasks = None
+):
+    background_tasks.add_task(send_email, email, subject, message)
     return {"message": "Email is being sent"}
 
 clients = []
